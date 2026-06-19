@@ -21,6 +21,7 @@ Si ya tienes la base creada de una version anterior, aplica la migracion:
 
 ```bash
 psql -d materialpro -f backend/migrations/001_modulos_oro_equipo_config.sql
+psql -d materialpro -f backend/migrations/002_auth_gmail_verification.sql
 ```
 
 Configurar `backend/.env`:
@@ -33,6 +34,8 @@ DB_NAME=materialpro
 DB_USER=postgres
 DB_PASSWORD=contrasena_postgres
 JWT_SECRET=materialpro_secret_key_2026
+EMAIL_USER=tu_correo@gmail.com
+EMAIL_PASS=tu_app_password_de_gmail
 ```
 
 ## Ejecutar frontend web
@@ -79,13 +82,25 @@ La app usa `http://10.0.2.2:3000/api` para el emulador Android. En telefono fisi
 Registrar:
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/register -H "Content-Type: application/json" -d "{\"nombre\":\"Sergio\",\"usuario\":\"sergio\",\"email\":\"sergio@test.com\",\"password\":\"123456\"}"
+curl -X POST http://localhost:3000/api/auth/register -H "Content-Type: application/json" -d "{\"nombre\":\"Sergio Ticona\",\"email\":\"sergio@gmail.com\",\"password\":\"123456\",\"confirmarPassword\":\"123456\"}"
+```
+
+Verificar Gmail:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/verificar-email -H "Content-Type: application/json" -d "{\"email\":\"sergio@gmail.com\",\"codigo\":\"482913\"}"
+```
+
+Reenviar codigo:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/reenviar-codigo -H "Content-Type: application/json" -d "{\"email\":\"sergio@gmail.com\"}"
 ```
 
 Login:
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d "{\"usuario\":\"sergio\",\"password\":\"123456\"}"
+curl -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"sergio@gmail.com\",\"password\":\"123456\"}"
 ```
 
 Guardar el token y enviarlo asi:

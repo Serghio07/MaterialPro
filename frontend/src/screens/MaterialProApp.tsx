@@ -43,11 +43,13 @@ import {
   useWindowDimensions,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import { apiRequest, clearSession, getToken, setSession } from "../services/api";
 
 type ScreenName =
   | "Login"
   | "Register"
+  | "VerifyEmail"
   | "Dashboard"
   | "Materiales"
   | "TiposGasto"
@@ -71,6 +73,7 @@ type Option = { label: string; value: string };
 type AnyRow = Record<string, any>;
 
 const today = () => new Date().toISOString().slice(0, 10);
+const isGmail = (email: string) => /^[^\s@]+@gmail\.com$/i.test(email.trim());
 
 const weekRange = () => {
   const date = new Date();
@@ -93,17 +96,33 @@ async function pickImageUri(onPicked: (uri: string) => void) {
 
 export default function MaterialProApp() {
   const [screen, setScreen] = useState<ScreenName>("Login");
+  const [pendingEmail, setPendingEmail] = useState("");
   const [checking, setChecking] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const { width } = useWindowDimensions();
 
   useEffect(() => {
     getToken()
-      .then((token) => setScreen(token ? "Dashboard" : "Login"))
+      .then(async (token) => {
+        if (!token) {
+          setScreen("Login");
+          return;
+        }
+        try {
+          await apiRequest("/auth/perfil");
+          setScreen("Dashboard");
+        } catch {
+          await clearSession();
+          setScreen("Login");
+        }
+      })
       .finally(() => setChecking(false));
   }, []);
 
-  const go = (next: ScreenName) => setScreen(next);
+  const go = (next: ScreenName, email?: string) => {
+    if (email) setPendingEmail(email);
+    setScreen(next);
+  };
   const refresh = () => setRefreshKey((key) => key + 1);
 
   const logout = async () => {
@@ -147,7 +166,8 @@ export default function MaterialProApp() {
     <SafeAreaView style={styles.app}>
       {screen === "Login" && <LoginScreen go={go} />}
       {screen === "Register" && <RegisterScreen go={go} />}
-      {screen !== "Login" && screen !== "Register" && (
+      {screen === "VerifyEmail" && <VerifyEmailScreen go={go} email={pendingEmail} />}
+      {screen !== "Login" && screen !== "Register" && screen !== "VerifyEmail" && (
         <AppShell
           active={screen}
           compact={width < 900}
@@ -209,21 +229,32 @@ function AppShell({
   );
 }
 
-function LoginScreen({ go }: { go: (screen: ScreenName) => void }) {
-  const [usuario, setUsuario] = useState("");
+function LoginScreen({ go }: { go: (screen: ScreenName, email?: string) => void }) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return Alert.alert("Login", "El Gmail es obligatorio");
+    if (!isGmail(cleanEmail)) return Alert.alert("Login", "El Gmail debe terminar en @gmail.com");
+    if (!password) return Alert.alert("Login", "La contrasena es obligatoria");
+
     try {
       setLoading(true);
       const data = await apiRequest<{ token: string; usuario: AnyRow }>("/auth/login", {
         method: "POST",
-        body: { usuario, password },
+        body: { email: cleanEmail, password },
       });
       await setSession(data.token, data.usuario);
       go("Dashboard");
     } catch (error: any) {
+      if (String(error.message).includes("verificar tu Gmail")) {
+        Alert.alert("Verifica tu Gmail", error.message);
+        go("VerifyEmail", cleanEmail);
+        return;
+      }
       Alert.alert("Login", error.message);
     } finally {
       setLoading(false);
@@ -244,27 +275,59 @@ function LoginScreen({ go }: { go: (screen: ScreenName) => void }) {
       <View style={styles.authCard}>
         <Text style={styles.authTitle}>Iniciar Sesion</Text>
         <Text style={styles.authSubtitle}>Bienvenido de nuevo</Text>
-        <AuthInput icon="U" placeholder="Usuario" value={usuario} onChangeText={setUsuario} />
-        <AuthInput icon="L" placeholder="Contrasena" value={password} onChangeText={setPassword} secureTextEntry rightText="Ver" />
+        <AuthInput icon="@" placeholder="Gmail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <AuthInput
+          icon="L"
+          placeholder="Contrasena"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+          right={
+            <Ionicons
+              name={showPassword ? "eye-off" : "eye"}
+              size={22}
+              color="#64748b"
+              onPress={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
         <Button title={loading ? "Ingresando..." : "Iniciar sesion"} onPress={submit} tone="blue" />
         <Pressable onPress={() => go("Register")} style={styles.authSwitch}>
-          <Text style={styles.authSwitchText}>No tienes cuenta? <Text style={styles.authSwitchLink}>Registrate</Text></Text>
+          <Text style={styles.authSwitchText}>No tienes cuenta? <Text style={styles.authSwitchLink}>Crear cuenta</Text></Text>
         </Pressable>
       </View>
     </ScrollView>
   );
 }
 
-function RegisterScreen({ go }: { go: (screen: ScreenName) => void }) {
-  const [form, setForm] = useState({ nombre: "", usuario: "", email: "", password: "" });
+function RegisterScreen({ go }: { go: (screen: ScreenName, email?: string) => void }) {
+  const [form, setForm] = useState({
+    nombre: "",
+    email: "",
+    password: "",
+    confirmarPassword: "",
+    imagen_url: "",
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
+    const cleanEmail = form.email.trim().toLowerCase();
+    if (!form.nombre.trim()) return Alert.alert("Registro", "El nombre es obligatorio");
+    if (!cleanEmail) return Alert.alert("Registro", "El Gmail es obligatorio");
+    if (!isGmail(cleanEmail)) return Alert.alert("Registro", "El Gmail debe terminar en @gmail.com");
+    if (form.password.length < 6) return Alert.alert("Registro", "La contrasena debe tener minimo 6 caracteres");
+    if (form.password !== form.confirmarPassword) return Alert.alert("Registro", "Las contrasenas no coinciden");
+
     try {
       setLoading(true);
-      await apiRequest("/auth/register", { method: "POST", body: form });
-      Alert.alert("Registro", "Usuario creado correctamente");
-      go("Login");
+      const data = await apiRequest<{ message: string; email: string }>("/auth/register", {
+        method: "POST",
+        body: { ...form, email: cleanEmail },
+      });
+      Alert.alert("Registro", data.message);
+      go("VerifyEmail", data.email);
     } catch (error: any) {
       Alert.alert("Registro", error.message);
     } finally {
@@ -276,22 +339,123 @@ function RegisterScreen({ go }: { go: (screen: ScreenName) => void }) {
     <ScrollView contentContainerStyle={styles.registerAuth}>
       <View style={styles.registerHeader}>
         <Pressable onPress={() => go("Login")} style={styles.backButton}>
-          <Text style={styles.backButtonText}>‹</Text>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.registerTitle}>Crear Cuenta</Text>
         <View style={styles.backButton} />
       </View>
       <View style={styles.registerBody}>
-        <View style={styles.avatarPicker}>
-          <Text style={styles.avatarIcon}>CAM</Text>
-        </View>
+        <Pressable style={styles.avatarPicker} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
+          {form.imagen_url ? (
+            <Image source={{ uri: form.imagen_url }} style={styles.avatarPreview} />
+          ) : (
+            <Ionicons name="camera" size={30} color="#1f2937" />
+          )}
+        </Pressable>
         <AuthInput icon="N" placeholder="Nombre completo" value={form.nombre} onChangeText={(v) => setForm({ ...form, nombre: v })} />
-        <AuthInput icon="U" placeholder="Usuario" value={form.usuario} onChangeText={(v) => setForm({ ...form, usuario: v })} />
-        <AuthInput icon="@" placeholder="Email" value={form.email} onChangeText={(v) => setForm({ ...form, email: v })} />
-        <AuthInput icon="L" placeholder="Contrasena" value={form.password} onChangeText={(v) => setForm({ ...form, password: v })} secureTextEntry rightText="Ver" />
-        <Button title={loading ? "Guardando..." : "Registrarme"} onPress={submit} tone="blue" />
+        <AuthInput icon="@" placeholder="Gmail" value={form.email} onChangeText={(v) => setForm({ ...form, email: v })} autoCapitalize="none" keyboardType="email-address" />
+        <AuthInput
+          icon="L"
+          placeholder="Contrasena"
+          value={form.password}
+          onChangeText={(v) => setForm({ ...form, password: v })}
+          secureTextEntry={!showPassword}
+          right={<Ionicons name={showPassword ? "eye-off" : "eye"} size={22} color="#64748b" onPress={() => setShowPassword(!showPassword)} />}
+        />
+        <AuthInput
+          icon="L"
+          placeholder="Confirmar contrasena"
+          value={form.confirmarPassword}
+          onChangeText={(v) => setForm({ ...form, confirmarPassword: v })}
+          secureTextEntry={!showConfirmPassword}
+          right={<Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={22} color="#64748b" onPress={() => setShowConfirmPassword(!showConfirmPassword)} />}
+        />
+        <Button title={loading ? "Creando..." : "Crear cuenta"} onPress={submit} tone="blue" />
         <Pressable onPress={() => go("Login")} style={styles.authSwitch}>
           <Text style={styles.authSwitchText}>Ya tienes cuenta? <Text style={styles.authSwitchLink}>Inicia sesion</Text></Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+function VerifyEmailScreen({ go, email }: { go: (screen: ScreenName, email?: string) => void; email: string }) {
+  const [gmail, setGmail] = useState(email || "");
+  const [codigo, setCodigo] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  const verificar = async () => {
+    const cleanEmail = gmail.trim().toLowerCase();
+    if (!cleanEmail) return Alert.alert("Verificacion", "El Gmail es obligatorio");
+    if (!isGmail(cleanEmail)) return Alert.alert("Verificacion", "El Gmail debe terminar en @gmail.com");
+    if (!/^\d{6}$/.test(codigo)) return Alert.alert("Verificacion", "El codigo debe tener 6 digitos");
+
+    try {
+      setLoading(true);
+      const data = await apiRequest<{ message: string }>("/auth/verificar-email", {
+        method: "POST",
+        body: { email: cleanEmail, codigo },
+      });
+      Alert.alert("Verificacion", data.message);
+      go("Login");
+    } catch (error: any) {
+      Alert.alert("Verificacion", error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reenviar = async () => {
+    const cleanEmail = gmail.trim().toLowerCase();
+    if (!cleanEmail) return Alert.alert("Reenviar codigo", "El Gmail es obligatorio");
+    if (!isGmail(cleanEmail)) return Alert.alert("Reenviar codigo", "El Gmail debe terminar en @gmail.com");
+
+    try {
+      setResending(true);
+      const data = await apiRequest<{ message: string }>("/auth/reenviar-codigo", {
+        method: "POST",
+        body: { email: cleanEmail },
+      });
+      Alert.alert("Reenviar codigo", data.message);
+    } catch (error: any) {
+      Alert.alert("Reenviar codigo", error.message);
+    } finally {
+      setResending(false);
+    }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.verifyAuth}>
+      <View style={styles.registerHeader}>
+        <Pressable onPress={() => go("Login")} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </Pressable>
+        <Text style={styles.registerTitle}>Verificar Gmail</Text>
+        <View style={styles.backButton} />
+      </View>
+      <View style={styles.verifyBody}>
+        <View style={styles.verifyIcon}>
+          <Ionicons name="mail" size={34} color="#ffb000" />
+        </View>
+        <Text style={styles.verifyTitle}>Codigo de verificacion</Text>
+        <Text style={styles.verifyText}>Te enviamos un codigo de 6 digitos a:</Text>
+        <Text style={styles.verifyEmail}>{gmail || "usuario@gmail.com"}</Text>
+        <AuthInput icon="@" placeholder="Gmail" value={gmail} onChangeText={setGmail} autoCapitalize="none" keyboardType="email-address" />
+        <AuthInput
+          icon="#"
+          placeholder="Codigo de 6 digitos"
+          value={codigo}
+          onChangeText={(v) => setCodigo(v.replace(/\D/g, "").slice(0, 6))}
+          keyboardType="number-pad"
+          maxLength={6}
+        />
+        <Button title={loading ? "Verificando..." : "Verificar codigo"} onPress={verificar} tone="blue" />
+        <Pressable onPress={reenviar} style={styles.authSwitch}>
+          <Text style={styles.authSwitchLink}>{resending ? "Reenviando..." : "Reenviar codigo"}</Text>
+        </Pressable>
+        <Pressable onPress={() => go("Register")} style={styles.authSwitch}>
+          <Text style={styles.authSwitchText}>Cambiar correo</Text>
         </Pressable>
       </View>
     </ScrollView>
@@ -1479,7 +1643,7 @@ function ConfiguracionScreen({ go, logout }: AppProps) {
   );
 }
 
-type AppProps = { go: (screen: ScreenName) => void; refreshKey: any; refresh: () => void; logout: () => void };
+type AppProps = { go: (screen: ScreenName, email?: string) => void; refreshKey: any; refresh: () => void; logout: () => void };
 
 function MasScreen({ go, logout }: AppProps) {
   const items: { title: string; icon: string; screen?: ScreenName; danger?: boolean }[] = [
@@ -1743,8 +1907,9 @@ function TypeGrid({ value, options, onChange }: { value: string; options: Option
 function AuthInput({
   icon,
   rightText,
+  right,
   ...props
-}: React.ComponentProps<typeof TextInput> & { icon: string; rightText?: string }) {
+}: React.ComponentProps<typeof TextInput> & { icon: string; rightText?: string; right?: ReactNode }) {
   return (
     <View style={styles.authInputWrap}>
       <Text style={styles.authInputIcon}>{icon}</Text>
@@ -1753,6 +1918,7 @@ function AuthInput({
         placeholderTextColor="#8a94a6"
         style={styles.authInput}
       />
+      {right && <View style={styles.authInputRightIcon}>{right}</View>}
       {rightText && <Text style={styles.authInputRight}>{rightText}</Text>}
     </View>
   );
@@ -2128,6 +2294,7 @@ const styles = StyleSheet.create({
   authInputWrap: { minHeight: 52, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 14, marginBottom: 12 },
   authInputIcon: { width: 24, color: "#8a94a6", fontWeight: "900", fontSize: 13, textAlign: "center", marginRight: 8 },
   authInput: { flex: 1, color: "#1f2937", fontSize: 14, fontWeight: "700", minHeight: 48 },
+  authInputRightIcon: { width: 30, alignItems: "center", justifyContent: "center", marginLeft: 8 },
   authInputRight: { color: "#8a94a6", fontSize: 12, fontWeight: "800", marginLeft: 8 },
   authSwitch: { alignItems: "center", paddingTop: 8 },
   authSwitchText: { color: "#6b7280", fontWeight: "800", fontSize: 13 },
@@ -2139,7 +2306,14 @@ const styles = StyleSheet.create({
   registerTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
   registerBody: { width: "100%", maxWidth: 480, padding: 24, paddingTop: 20, alignItems: "stretch" },
   avatarPicker: { width: 84, height: 84, borderRadius: 42, backgroundColor: "#f0f1f3", alignSelf: "center", alignItems: "center", justifyContent: "center", marginBottom: 20 },
+  avatarPreview: { width: 84, height: 84, borderRadius: 42 },
   avatarIcon: { color: "#1f2937", fontWeight: "900", fontSize: 13 },
+  verifyAuth: { flexGrow: 1, alignItems: "center", backgroundColor: "#f8fafc" },
+  verifyBody: { width: "100%", maxWidth: 480, padding: 24, paddingTop: 26, alignItems: "stretch" },
+  verifyIcon: { width: 74, height: 74, borderRadius: 37, backgroundColor: "#062447", alignSelf: "center", alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  verifyTitle: { color: "#0f172a", fontSize: 22, fontWeight: "900", textAlign: "center", marginBottom: 8 },
+  verifyText: { color: "#64748b", fontSize: 14, fontWeight: "700", textAlign: "center" },
+  verifyEmail: { color: "#0b68d8", fontSize: 15, fontWeight: "900", textAlign: "center", marginBottom: 20 },
   brand: { fontSize: 38, fontWeight: "900", color: "#f8fafc", marginBottom: 8 },
   subtitle: { fontSize: 16, color: "#6f8ab3", marginBottom: 28 },
   shell: { flex: 1, backgroundColor: "#050910" },

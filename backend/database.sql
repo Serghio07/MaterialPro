@@ -1,14 +1,21 @@
 CREATE TABLE IF NOT EXISTS usuarios (
   id_usuario SERIAL PRIMARY KEY,
-  nombre VARCHAR(120) NOT NULL,
-  usuario VARCHAR(80) NOT NULL UNIQUE,
-  email VARCHAR(160) NOT NULL UNIQUE,
-  password TEXT NOT NULL,
+  nombre VARCHAR(100) NOT NULL,
+  email VARCHAR(150) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  estado VARCHAR(20) DEFAULT 'activo',
   imagen_url TEXT,
-  estado VARCHAR(20) NOT NULL DEFAULT 'activo',
-  fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  email_verificado BOOLEAN DEFAULT false,
+  codigo_verificacion VARCHAR(10),
+  codigo_expira TIMESTAMP,
+  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT false;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_verificacion VARCHAR(10);
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_expira TIMESTAMP;
+ALTER TABLE usuarios DROP COLUMN IF EXISTS usuario;
 
 CREATE TABLE IF NOT EXISTS materiales (
   id_material SERIAL PRIMARY KEY,
