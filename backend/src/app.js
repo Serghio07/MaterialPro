@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 require("dotenv").config();
 const materialesRoutes = require("./routes/materiales.routes");
 const authRoutes = require("./routes/auth.routes");
@@ -16,6 +17,7 @@ const grupoRoutes = require("./routes/grupo.routes");
 
 const app = express();
 
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
