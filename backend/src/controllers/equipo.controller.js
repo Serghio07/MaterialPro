@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarEquipo = async (req, res) => {
   try {
@@ -12,7 +13,7 @@ const listarEquipo = async (req, res) => {
     }
     query += " ORDER BY nombre ASC";
     const resultado = await pool.query(query, params);
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarEquipo:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -25,7 +26,7 @@ const obtenerIntegrante = async (req, res) => {
     if (resultado.rows.length === 0) {
       return res.status(404).json({ message: "Integrante no encontrado" });
     }
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerIntegrante:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -35,7 +36,7 @@ const obtenerIntegrante = async (req, res) => {
 const crearIntegrante = async (req, res) => {
   try {
     const { nombre, celular, cargo, imagen_url, observacion, estado } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
     if (!nombre || !celular) {
       return res.status(400).json({ message: "Nombre y celular son obligatorios" });
     }
@@ -45,7 +46,7 @@ const crearIntegrante = async (req, res) => {
        RETURNING *`,
       [nombre, celular, cargo || null, imagenFinal, observacion || null, estado || "activo"]
     );
-    return res.status(201).json({ message: "Integrante guardado", integrante: resultado.rows[0] });
+    return res.status(201).json({ message: "Integrante guardado", integrante: limpiarFilaImagen(resultado.rows[0]) });
   } catch (error) {
     console.error("Error crearIntegrante:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -55,7 +56,7 @@ const crearIntegrante = async (req, res) => {
 const actualizarIntegrante = async (req, res) => {
   try {
     const { nombre, celular, cargo, imagen_url, observacion, estado } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
     const resultado = await pool.query(
       `UPDATE equipo
        SET nombre = COALESCE($1, nombre),
@@ -72,7 +73,7 @@ const actualizarIntegrante = async (req, res) => {
     if (resultado.rows.length === 0) {
       return res.status(404).json({ message: "Integrante no encontrado" });
     }
-    return res.json({ message: "Integrante actualizado", integrante: resultado.rows[0] });
+    return res.json({ message: "Integrante actualizado", integrante: limpiarFilaImagen(resultado.rows[0]) });
   } catch (error) {
     console.error("Error actualizarIntegrante:", error);
     return res.status(500).json({ message: "Error interno del servidor" });

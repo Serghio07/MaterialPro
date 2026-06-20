@@ -33,6 +33,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -44,7 +45,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { apiRequest, clearSession, getToken, setSession } from "../services/api";
+import { API_ORIGIN, apiFormRequest, apiRequest, clearSession, getSessionUser, getToken, setSession } from "../services/api";
 
 type ScreenName =
   | "Login"
@@ -83,6 +84,16 @@ const weekRange = () => {
   return { desde: start.toISOString().slice(0, 10), hasta: today() };
 };
 
+async function blobUriToDataUri(uri: string) {
+  const blob = await fetch(uri).then((response) => response.blob());
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || uri));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function pickImageUri(onPicked: (uri: string) => void) {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -90,7 +101,12 @@ async function pickImageUri(onPicked: (uri: string) => void) {
   });
 
   if (!result.canceled && result.assets[0]?.uri) {
-    onPicked(result.assets[0].uri);
+    const uri = result.assets[0].uri;
+    if (Platform.OS === "web" && uri.startsWith("blob:")) {
+      onPicked(await blobUriToDataUri(uri));
+      return;
+    }
+    onPicked(uri);
   }
 }
 
@@ -308,6 +324,7 @@ function RegisterScreen({ go }: { go: (screen: ScreenName, email?: string) => vo
     confirmarPassword: "",
     imagen_url: "",
   });
+  const [localImageUri, setLocalImageUri] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -322,9 +339,10 @@ function RegisterScreen({ go }: { go: (screen: ScreenName, email?: string) => vo
 
     try {
       setLoading(true);
-      const data = await apiRequest<{ message: string; email: string }>("/auth/register", {
+      const data = await apiFormRequest<{ message: string; email: string }>("/auth/register", {
         method: "POST",
-        body: { ...form, email: cleanEmail },
+        body: { ...form, email: cleanEmail, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
       });
       Alert.alert("Registro", data.message);
       go("VerifyEmail", data.email);
@@ -345,9 +363,9 @@ function RegisterScreen({ go }: { go: (screen: ScreenName, email?: string) => vo
         <View style={styles.backButton} />
       </View>
       <View style={styles.registerBody}>
-        <Pressable style={styles.avatarPicker} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
-          {form.imagen_url ? (
-            <Image source={{ uri: form.imagen_url }} style={styles.avatarPreview} />
+        <Pressable style={styles.avatarPicker} onPress={() => pickImageUri(setLocalImageUri)}>
+          {localImageUri ? (
+            <Image source={{ uri: localImageUri }} style={styles.avatarPreview} />
           ) : (
             <Ionicons name="camera" size={30} color="#1f2937" />
           )}
@@ -463,6 +481,7 @@ function VerifyEmailScreen({ go, email }: { go: (screen: ScreenName, email?: str
 }
 
 function DashboardScreen({ go, logout, refreshKey }: AppProps) {
+  const [usuario, setUsuario] = useState<AnyRow | null>(null);
   const [data, setData] = useState({
     ventasDia: 0,
     gastosDia: 0,
@@ -474,6 +493,10 @@ function DashboardScreen({ go, logout, refreshKey }: AppProps) {
     total_oro_semanal: 0,
   });
   const [equipo, setEquipo] = useState<AnyRow[]>([]);
+
+  useEffect(() => {
+    getSessionUser<AnyRow>().then(setUsuario);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -502,8 +525,10 @@ function DashboardScreen({ go, logout, refreshKey }: AppProps) {
     load().catch((e) => Alert.alert("Dashboard", e.message));
   }, [refreshKey]);
 
+  const dashboardTitle = usuario?.nombre ? String(usuario.nombre) : "Dashboard";
+
   return (
-    <Screen title="Dashboard" white right={<Pressable onPress={logout}><AppIcon name="bell" color="#fff" size={22} /></Pressable>}>
+    <Screen title={dashboardTitle} white right={<Pressable onPress={logout}><AppIcon name="bell" color="#fff" size={22} /></Pressable>}>
       <View style={styles.whiteSectionHeader}>
         <Text style={styles.whiteSectionTitle}>Resumen del dia</Text>
         <Text style={styles.whiteDate}>19 de Junio, 2026</Text>
@@ -539,7 +564,7 @@ function DashboardScreen({ go, logout, refreshKey }: AppProps) {
         ) : (
           equipo.map((item) => (
             <Pressable key={item.id_equipo} style={styles.teamCarouselCard} onPress={() => go("Equipo")}>
-              <Image source={{ uri: item.imagen_url || avatarImage(item.nombre) }} style={styles.teamCarouselPhoto} />
+              <AvatarPhoto uri={item.imagen_url} name={item.nombre} style={styles.teamCarouselPhoto} />
               <Text style={styles.teamCarouselName}>{item.nombre}</Text>
               <Text style={styles.teamCarouselRole}>{item.cargo || "Sin cargo"}</Text>
               <Text style={[styles.whiteBadge, item.estado === "activo" && styles.activeBadge]}>{item.estado || "activo"}</Text>
@@ -595,6 +620,7 @@ function MaterialesScreen(props: AppProps) {
   const [rows, setRows] = useState<AnyRow[]>([]);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<AnyRow | null>(null);
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState<AnyRow>({
     nombre: "",
     descripcion: "",
@@ -626,6 +652,7 @@ function MaterialesScreen(props: AppProps) {
       estado: "activo",
     };
     setEditing(item || {});
+    setLocalImageUri("");
     setForm({
       nombre: selected.nombre || "",
       descripcion: selected.descripcion || "",
@@ -639,9 +666,10 @@ function MaterialesScreen(props: AppProps) {
   const save = async () => {
     try {
       const isNew = !editing?.id_material;
-      await apiRequest(isNew ? "/materiales" : `/materiales/${editing.id_material}`, {
+      await apiFormRequest(isNew ? "/materiales" : `/materiales/${editing.id_material}`, {
         method: isNew ? "POST" : "PUT",
-        body: form,
+        body: { ...form, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
       });
       setEditing(null);
       load();
@@ -669,13 +697,12 @@ function MaterialesScreen(props: AppProps) {
         backAction={() => setEditing(null)}
       >
         <View style={styles.materialDetail}>
-          <Image source={{ uri: form.imagen_url || materialImage(form.nombre) }} style={styles.materialHero} />
-          <Pressable style={styles.cameraBadge} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
+          <Image source={{ uri: localImageUri || displayImageUri(form.imagen_url, materialImage(form.nombre)) }} style={styles.materialHero} />
+          <Pressable style={styles.cameraBadge} onPress={() => pickImageUri(setLocalImageUri)}>
             <AppIcon name="camera" color="#0b2f57" size={19} />
           </Pressable>
         </View>
-        <WhiteLabel text="Imagen" />
-        <WhiteInput value={form.imagen_url} onChangeText={(v) => setForm({ ...form, imagen_url: v })} placeholder="URL de imagen" />
+        <Text style={styles.imageHint}>{localImageUri ? "Imagen lista para guardar" : form.imagen_url ? "Imagen guardada en el servidor" : "Sin imagen guardada"}</Text>
         <WhiteLabel text="Nombre" />
         <WhiteInput value={form.nombre} onChangeText={(v) => setForm({ ...form, nombre: v })} />
         <WhiteLabel text="Descripcion" />
@@ -712,22 +739,20 @@ function MaterialesScreen(props: AppProps) {
           style={styles.searchInput}
         />
       </View>
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => String(item.id_material)}
-        scrollEnabled={false}
-        renderItem={({ item }) => (
-          <Pressable onPress={() => openDetail(item)} style={styles.materialRow}>
-            <Image source={{ uri: item.imagen_url || materialImage(item.nombre) }} style={styles.materialThumb} />
-            <View style={styles.materialInfo}>
-              <Text style={styles.materialName}>{item.nombre}</Text>
-              <Text style={styles.materialUnit}>{item.unidad_medida || "cubo"}</Text>
-            </View>
-            <Text style={styles.materialPrice}>Bs {Number(item.precio_referencia || 0).toFixed(2)}</Text>
-          </Pressable>
-        )}
-        ListEmptyComponent={<EmptyState title="Sin materiales" />}
-      />
+      {filtered.length === 0 ? (
+        <EmptyState title="Sin materiales" />
+      ) : (
+        <View style={styles.materialGrid}>
+          {filtered.map((item) => (
+            <Pressable key={item.id_material} onPress={() => openDetail(item)} style={styles.materialTile}>
+              <Image source={{ uri: displayImageUri(item.imagen_url, materialImage(item.nombre)) }} style={styles.materialTileImage} />
+              <Text style={styles.materialTileName} numberOfLines={2}>{item.nombre}</Text>
+              <Text style={styles.materialTileUnit}>{item.unidad_medida || "cubo"}</Text>
+              <Text style={styles.materialTilePrice}>Bs {Number(item.precio_referencia || 0).toFixed(2)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
     </Screen>
   );
 }
@@ -736,6 +761,7 @@ function TiposGastoScreen(props: AppProps) {
   const [rows, setRows] = useState<AnyRow[]>([]);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<AnyRow | null>(null);
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState({ nombre: "", descripcion: "", imagen_url: "", estado: "activo" });
 
   const load = () => {
@@ -749,6 +775,7 @@ function TiposGastoScreen(props: AppProps) {
   const openDetail = (item?: AnyRow) => {
     const selected = item || { nombre: "", descripcion: "", imagen_url: "", estado: "activo" };
     setEditing(item || {});
+    setLocalImageUri("");
     setForm({
       nombre: selected.nombre || "",
       descripcion: selected.descripcion || "",
@@ -760,9 +787,10 @@ function TiposGastoScreen(props: AppProps) {
   const save = async () => {
     try {
       const isNew = !editing?.id_tipo_gasto;
-      await apiRequest(isNew ? "/tipos-gasto" : `/tipos-gasto/${editing.id_tipo_gasto}`, {
+      await apiFormRequest(isNew ? "/tipos-gasto" : `/tipos-gasto/${editing.id_tipo_gasto}`, {
         method: isNew ? "POST" : "PUT",
-        body: form,
+        body: { ...form, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
       });
       setEditing(null);
       load();
@@ -795,7 +823,12 @@ function TiposGastoScreen(props: AppProps) {
         <WhiteLabel text="Descripcion" />
         <WhiteInput value={form.descripcion} onChangeText={(v) => setForm({ ...form, descripcion: v })} />
         <WhiteLabel text="Imagen" />
-        <WhiteInput value={form.imagen_url} onChangeText={(v) => setForm({ ...form, imagen_url: v })} placeholder="URL de imagen" />
+        <View style={styles.imageInputRow}>
+          <Text style={styles.imageStatus}>{localImageUri ? "Imagen lista para guardar" : form.imagen_url ? "Imagen guardada" : "Sin imagen"}</Text>
+          <Pressable style={styles.squareCamera} onPress={() => pickImageUri(setLocalImageUri)}>
+            <AppIcon name="camera" color="#0b2f57" size={19} />
+          </Pressable>
+        </View>
         <View style={styles.statusRow}>
           <Text style={styles.whiteFieldLabel}>Estado</Text>
           <Text style={styles.statusText}>{form.estado === "activo" ? "Activo" : "Inactivo"}</Text>
@@ -992,11 +1025,16 @@ function OroScreen({ go, refreshKey }: AppProps) {
 }
 
 function NuevoOroScreen({ go, refresh }: AppProps) {
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState({ fecha: today(), gramos: "", dia_trabajo: true, imagen_url: "", observacion: "" });
 
   const save = async () => {
     try {
-      await apiRequest("/oro", { method: "POST", body: form });
+      await apiFormRequest("/oro", {
+        method: "POST",
+        body: { ...form, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
+      });
       refresh();
       go("Oro");
     } catch (e: any) {
@@ -1006,8 +1044,8 @@ function NuevoOroScreen({ go, refresh }: AppProps) {
 
   return (
     <Screen title="Nuevo Registro de Oro" white backAction={() => go("Oro")}>
-      <Pressable style={styles.goldImageBox} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
-        <AppIcon name="camera" color="#b78103" size={34} />
+      <Pressable style={styles.goldImageBox} onPress={() => pickImageUri(setLocalImageUri)}>
+        {localImageUri ? <Image source={{ uri: localImageUri }} style={styles.groupPreviewImage} /> : <AppIcon name="camera" color="#b78103" size={34} />}
         <Text style={styles.goldImageText}>Imagen del oro / lugar</Text>
       </Pressable>
       <WhiteLabel text="Fecha" />
@@ -1017,8 +1055,8 @@ function NuevoOroScreen({ go, refresh }: AppProps) {
       <ToggleRow label="Dia de trabajo" value={form.dia_trabajo} onChange={(v) => setForm({ ...form, dia_trabajo: v })} />
       <WhiteLabel text="Imagen opcional" />
       <View style={styles.imageInputRow}>
-        <WhiteInput value={form.imagen_url} onChangeText={(v) => setForm({ ...form, imagen_url: v })} placeholder="URL de imagen" />
-        <Pressable style={styles.squareCamera} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
+        <Text style={styles.imageStatus}>{localImageUri ? "Imagen lista para guardar" : "Sin imagen"}</Text>
+        <Pressable style={styles.squareCamera} onPress={() => pickImageUri(setLocalImageUri)}>
           <AppIcon name="camera" color="#0b2f57" size={19} />
         </Pressable>
       </View>
@@ -1098,7 +1136,7 @@ function DetalleGrupoScreen({ go }: AppProps) {
   return (
     <Screen title="Detalle del Grupo" white backAction={() => go("Equipo")}>
       <View style={styles.groupHero}>
-        <Image source={{ uri: grupo?.imagen_url || avatarImage(grupo?.nombre_grupo || "MaterialPro Team") }} style={styles.groupLogo} />
+        <AvatarPhoto uri={grupo?.imagen_url} name={grupo?.nombre_grupo || "MaterialPro Team"} style={styles.groupLogo} />
         <Text style={styles.groupName}>{grupo?.nombre_grupo || "MaterialPro Team"}</Text>
       </View>
       <View style={styles.teamSummary}>
@@ -1127,6 +1165,7 @@ function DetalleGrupoScreen({ go }: AppProps) {
 }
 
 function EditarGrupoScreen({ go, refresh }: AppProps) {
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState({
     nombre_grupo: "MaterialPro Team",
     responsable: "Sergio Ticona",
@@ -1148,15 +1187,19 @@ function EditarGrupoScreen({ go, refresh }: AppProps) {
   }, []);
 
   const save = async () => {
-    await apiRequest("/grupo", { method: "PUT", body: form });
+    await apiFormRequest("/grupo", {
+      method: "PUT",
+      body: { ...form, imagen_file: localImageUri || undefined },
+      imageKey: "imagen_file",
+    });
     refresh();
     go("DetalleGrupo");
   };
 
   return (
     <Screen title="Editar Grupo" white backAction={() => go("DetalleGrupo")}>
-      <Pressable style={styles.goldImageBox} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
-        <AppIcon name="camera" color="#1468d8" size={34} />
+      <Pressable style={styles.goldImageBox} onPress={() => pickImageUri(setLocalImageUri)}>
+        {localImageUri ? <Image source={{ uri: localImageUri }} style={styles.groupPreviewImage} /> : <AppIcon name="camera" color="#1468d8" size={34} />}
         <Text style={styles.goldImageText}>Logo del grupo</Text>
       </Pressable>
       <WhiteLabel text="Nombre del grupo" />
@@ -1173,11 +1216,16 @@ function EditarGrupoScreen({ go, refresh }: AppProps) {
 }
 
 function NuevoIntegranteScreen({ go, refresh }: AppProps) {
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState({ nombre: "", celular: "", cargo: "", imagen_url: "", observacion: "", estado: "activo" });
 
   const save = async () => {
     try {
-      await apiRequest("/equipo", { method: "POST", body: form });
+      await apiFormRequest("/equipo", {
+        method: "POST",
+        body: { ...form, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
+      });
       refresh();
       go("Equipo");
     } catch (e: any) {
@@ -1188,14 +1236,18 @@ function NuevoIntegranteScreen({ go, refresh }: AppProps) {
   return (
     <Screen title="Nuevo Integrante" white backAction={() => go("Equipo")}>
       <View style={styles.detailIconHero}>
-        <View style={[styles.detailIconCircle, styles.blueShortcut]}>
-          <AppIcon name="camera" color="#1468d8" size={32} />
-        </View>
+        {localImageUri ? (
+          <Image source={{ uri: localImageUri }} style={styles.teamEditPhoto} />
+        ) : (
+          <View style={[styles.detailIconCircle, styles.blueShortcut]}>
+            <AppIcon name="camera" color="#1468d8" size={32} />
+          </View>
+        )}
       </View>
       <WhiteLabel text="Foto del integrante" />
       <View style={styles.imageInputRow}>
-        <WhiteInput value={form.imagen_url} onChangeText={(v) => setForm({ ...form, imagen_url: v })} placeholder="URL de imagen" />
-        <Pressable style={styles.squareCamera} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
+        <Text style={styles.imageStatus}>{localImageUri ? "Imagen lista para guardar" : "Sin imagen"}</Text>
+        <Pressable style={styles.squareCamera} onPress={() => pickImageUri(setLocalImageUri)}>
           <AppIcon name="camera" color="#0b2f57" size={19} />
         </Pressable>
       </View>
@@ -1279,6 +1331,7 @@ function VentasScreen({ go, refreshKey }: AppProps) {
 
 function NuevaVentaScreen({ go, refresh }: AppProps) {
   const [materiales, setMateriales] = useState<Option[]>([]);
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState({ fecha: today(), id_material: "", cliente_nombre: "", cantidad: "", unidad_medida: "cubo", precio_unitario: "", metodo_pago: "Efectivo", imagen_url: "", observacion: "" });
 
   useEffect(() => {
@@ -1289,7 +1342,11 @@ function NuevaVentaScreen({ go, refresh }: AppProps) {
 
   const submit = async () => {
     try {
-      await apiRequest("/ventas", { method: "POST", body: form });
+      await apiFormRequest("/ventas", {
+        method: "POST",
+        body: { ...form, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
+      });
       refresh();
       go("Ventas");
     } catch (e: any) {
@@ -1331,8 +1388,8 @@ function NuevaVentaScreen({ go, refresh }: AppProps) {
       <WhiteInput value={form.metodo_pago} onChangeText={(v) => setForm({ ...form, metodo_pago: v })} />
       <WhiteLabel text="Observacion / imagen (opcional)" />
       <View style={styles.imageInputRow}>
-        <WhiteInput value={form.imagen_url} onChangeText={(v) => setForm({ ...form, imagen_url: v })} placeholder="URL de imagen" />
-        <Pressable style={styles.squareCamera} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
+        <Text style={styles.imageStatus}>{localImageUri ? "Imagen lista para guardar" : "Sin imagen"}</Text>
+        <Pressable style={styles.squareCamera} onPress={() => pickImageUri(setLocalImageUri)}>
           <AppIcon name="camera" color="#0b2f57" size={19} />
         </Pressable>
       </View>
@@ -1399,6 +1456,7 @@ function GastosScreen({ go, refreshKey }: AppProps) {
 
 function NuevoGastoScreen({ go, refresh }: AppProps) {
   const [tipos, setTipos] = useState<Option[]>([]);
+  const [localImageUri, setLocalImageUri] = useState("");
   const [form, setForm] = useState({ fecha: today(), id_tipo_gasto: "", descripcion: "", cantidad: "1", monto: "", metodo_pago: "Efectivo", imagen_url: "", observacion: "" });
 
   useEffect(() => {
@@ -1407,7 +1465,11 @@ function NuevoGastoScreen({ go, refresh }: AppProps) {
 
   const submit = async () => {
     try {
-      await apiRequest("/gastos", { method: "POST", body: form });
+      await apiFormRequest("/gastos", {
+        method: "POST",
+        body: { ...form, imagen_file: localImageUri || undefined },
+        imageKey: "imagen_file",
+      });
       refresh();
       go("Gastos");
     } catch (e: any) {
@@ -1438,8 +1500,8 @@ function NuevoGastoScreen({ go, refresh }: AppProps) {
       <WhiteInput value={form.metodo_pago} onChangeText={(v) => setForm({ ...form, metodo_pago: v })} />
       <WhiteLabel text="Imagen (opcional)" />
       <View style={styles.imageInputRow}>
-        <WhiteInput value={form.imagen_url} onChangeText={(v) => setForm({ ...form, imagen_url: v })} placeholder="URL de imagen" />
-        <Pressable style={styles.squareCamera} onPress={() => pickImageUri((uri) => setForm({ ...form, imagen_url: uri }))}>
+        <Text style={styles.imageStatus}>{localImageUri ? "Imagen lista para guardar" : "Sin imagen"}</Text>
+        <Pressable style={styles.squareCamera} onPress={() => pickImageUri(setLocalImageUri)}>
           <AppIcon name="camera" color="#0b2f57" size={19} />
         </Pressable>
       </View>
@@ -2105,19 +2167,64 @@ function Icon({ name, color, size = 20 }: { name: string; color: string; size?: 
 }
 
 function materialImage(name = "") {
-  const key = name.toLowerCase();
-  if (key.includes("arena")) return "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=500&q=70";
-  if (key.includes("grava")) return "https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=500&q=70";
-  if (key.includes("cascaj")) return "https://images.unsplash.com/photo-1603918512258-07987f2f87ef?w=500&q=70";
-  return "https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=500&q=70";
+  const label = initials(name || "Material");
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+      <rect width="400" height="400" rx="34" fill="#e5e7eb"/>
+      <circle cx="116" cy="118" r="48" fill="#d1d5db"/>
+      <circle cx="250" cy="130" r="70" fill="#cbd5e1"/>
+      <path d="M54 314c52-76 92-105 132-84 32 17 49 62 96 38 25-13 42-42 64-78v124H54z" fill="#b8c2cf"/>
+      <text x="200" y="220" text-anchor="middle" font-family="Arial" font-size="78" font-weight="800" fill="#64748b">${label}</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function goldImage() {
-  return "https://images.unsplash.com/photo-1610375461246-83df859d849d?w=500&q=70";
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+      <rect width="400" height="400" rx="34" fill="#fff8e5"/>
+      <circle cx="200" cy="200" r="96" fill="#f4c542"/>
+      <path d="M136 226c38-76 89-108 146-96-24 27-37 58-40 94-32 14-68 15-106 2z" fill="#d99b12"/>
+    </svg>
+  `;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-function avatarImage(name = "") {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || "Equipo")}&background=e9f2ff&color=1468d8`;
+function initials(name = "") {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const value = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : (parts[0] || "E").slice(0, 2);
+  return value.toUpperCase();
+}
+
+function imageUri(uri?: string | null) {
+  if (!uri) return null;
+  if (uri.startsWith("/uploads/")) return `${API_ORIGIN}${uri}`;
+  if (uri.startsWith("blob:")) return null;
+  if (!/^https?:\/\//.test(uri) && !uri.startsWith("data:")) return null;
+  return uri;
+}
+
+function displayImageUri(uri: string | null | undefined, fallback: string) {
+  if (!uri) return fallback;
+  if (uri.startsWith("/uploads/")) return `${API_ORIGIN}${uri}`;
+  if (/^https?:\/\//.test(uri) || uri.startsWith("data:")) return uri;
+  return fallback;
+}
+
+function AvatarPhoto({ uri, name, style }: { uri?: string | null; name: string; style: any }) {
+  const [failed, setFailed] = useState(false);
+  const resolvedUri = !failed ? imageUri(uri) : null;
+
+  if (resolvedUri) {
+    return <Image source={{ uri: resolvedUri }} style={style} onError={() => setFailed(true)} />;
+  }
+
+  return (
+    <View style={[style, styles.avatarFallback]}>
+      <Text style={styles.avatarFallbackText}>{initials(name)}</Text>
+    </View>
+  );
 }
 
 function expenseIconName(name = "") {
@@ -2183,7 +2290,7 @@ function WhiteSaleRow({ item }: { item: AnyRow }) {
 function GoldRow({ item }: { item: AnyRow }) {
   return (
     <View style={styles.goldRow}>
-      <Image source={{ uri: item.imagen_url || goldImage() }} style={styles.goldThumb} />
+      <Image source={{ uri: displayImageUri(item.imagen_url, goldImage()) }} style={styles.goldThumb} />
       <View style={styles.goldInfo}>
         <Text style={styles.whiteSaleDate}>{String(item.fecha || "").slice(0, 10)}</Text>
         <Text style={styles.materialName}>{item.dia_trabajo ? "Dia trabajado" : "Sin trabajo"}</Text>
@@ -2197,7 +2304,7 @@ function GoldRow({ item }: { item: AnyRow }) {
 function TeamRow({ item, onDeactivate }: { item: AnyRow; onDeactivate?: () => void }) {
   return (
     <View style={styles.teamRow}>
-      <Image source={{ uri: item.imagen_url || avatarImage(item.nombre) }} style={styles.teamPhoto} />
+      <AvatarPhoto uri={item.imagen_url} name={item.nombre} style={styles.teamPhoto} />
       <View style={styles.goldInfo}>
         <Text style={styles.materialName}>{item.nombre}</Text>
         <Text style={styles.managementSubtitle}>Cel: {item.celular}</Text>
@@ -2218,7 +2325,7 @@ function TeamRow({ item, onDeactivate }: { item: AnyRow; onDeactivate?: () => vo
 function TeamMiniRow({ item }: { item: AnyRow }) {
   return (
     <View style={styles.teamMiniRow}>
-      <Image source={{ uri: item.imagen_url || avatarImage(item.nombre) }} style={styles.teamMiniPhoto} />
+      <AvatarPhoto uri={item.imagen_url} name={item.nombre} style={styles.teamMiniPhoto} />
       <View style={{ flex: 1 }}>
         <Text style={styles.materialName}>{item.nombre}</Text>
         <Text style={styles.managementSubtitle}>{item.cargo || "Sin cargo"}</Text>
@@ -2332,13 +2439,13 @@ const styles = StyleSheet.create({
   title: { fontSize: 23, fontWeight: "900", color: "#f8fafc" },
   link: { color: "#ffbd00", fontWeight: "800" },
   input: { minHeight: 58, borderWidth: 1, borderColor: "#1d3150", borderRadius: 8, paddingHorizontal: 18, marginBottom: 12, backgroundColor: "#0d1522", color: "#f8fafc", fontSize: 16, fontWeight: "700" },
-  button: { minHeight: 56, minWidth: 160, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, marginBottom: 10, borderWidth: 1, borderColor: "transparent" },
+  button: { minHeight: 44, minWidth: 120, alignSelf: "center", borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 18, paddingVertical: 10, marginHorizontal: 18, marginBottom: 10, borderWidth: 1, borderColor: "transparent" },
   greenButton: { backgroundColor: "#05c988" },
   blueButton: { backgroundColor: "#0d3a78", borderColor: "#1c62d1" },
   redButton: { backgroundColor: "#ff3045" },
   amberButton: { backgroundColor: "#ffa300" },
   ghost: { backgroundColor: "#0d1522", borderColor: "#1d3150" },
-  buttonText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  buttonText: { color: "#fff", fontWeight: "900", fontSize: 14 },
   ghostText: { color: "#8eacd5" },
   roundButton: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   roundButtonText: { color: "#06101c", fontWeight: "900", fontSize: 28, lineHeight: 30 },
@@ -2389,6 +2496,12 @@ const styles = StyleSheet.create({
   detailIconCircle: { width: 86, height: 86, borderRadius: 43, alignItems: "center", justifyContent: "center" },
   searchBox: { marginHorizontal: 18, minHeight: 46, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, marginBottom: 14, backgroundColor: "#fff" },
   searchInput: { flex: 1, minHeight: 44, marginLeft: 8, color: "#1f2937", fontWeight: "700" },
+  materialGrid: { paddingHorizontal: 18, flexDirection: "row", flexWrap: "wrap", gap: 10, paddingBottom: 16 },
+  materialTile: { width: "31.5%", minHeight: 144, borderRadius: 8, borderWidth: 1, borderColor: "#eef2f7", backgroundColor: "#fff", padding: 8, alignItems: "center" },
+  materialTileImage: { width: "100%", aspectRatio: 1, borderRadius: 8, backgroundColor: "#e5e7eb", marginBottom: 8 },
+  materialTileName: { minHeight: 34, color: "#1f2937", fontSize: 12, fontWeight: "900", textAlign: "center" },
+  materialTileUnit: { color: "#6b7280", fontSize: 10, fontWeight: "800", marginTop: 2 },
+  materialTilePrice: { color: "#1468d8", fontSize: 11, fontWeight: "900", marginTop: 6 },
   materialRow: { minHeight: 64, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", marginBottom: 6 },
   materialThumb: { width: 46, height: 46, borderRadius: 7, backgroundColor: "#e5e7eb", marginRight: 12 },
   materialInfo: { flex: 1 },
@@ -2398,6 +2511,8 @@ const styles = StyleSheet.create({
   materialDetail: { marginHorizontal: 18, marginBottom: 12, position: "relative" },
   materialHero: { width: "100%", height: 130, borderRadius: 8, backgroundColor: "#e5e7eb" },
   cameraBadge: { position: "absolute", right: 12, bottom: 12, width: 42, height: 42, borderRadius: 21, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  imageHint: { color: "#64748b", fontSize: 12, fontWeight: "800", textAlign: "center", marginHorizontal: 18, marginBottom: 12 },
+  imageStatus: { flex: 1, minHeight: 46, marginLeft: 18, marginRight: 10, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, color: "#64748b", fontSize: 12, fontWeight: "800", paddingHorizontal: 12, paddingTop: 14, backgroundColor: "#f8fafc" },
   whiteFieldLabel: { color: "#374151", fontSize: 12, fontWeight: "900", marginHorizontal: 18, marginBottom: 6 },
   whiteInput: { marginHorizontal: 18, minHeight: 46, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, marginBottom: 12, color: "#111827", fontWeight: "700", backgroundColor: "#fff" },
   statusRow: { marginHorizontal: 18, minHeight: 44, flexDirection: "row", alignItems: "center", marginBottom: 12 },
@@ -2490,6 +2605,9 @@ const styles = StyleSheet.create({
   goldImageText: { color: "#b78103", fontWeight: "900", marginTop: 8 },
   teamRow: { marginHorizontal: 18, minHeight: 86, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: "#eef2f7", paddingVertical: 10 },
   teamPhoto: { width: 56, height: 56, borderRadius: 28, backgroundColor: "#e9f2ff", marginRight: 12 },
+  teamEditPhoto: { width: 92, height: 92, borderRadius: 46, backgroundColor: "#e9f2ff" },
+  avatarFallback: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#d7e7ff" },
+  avatarFallbackText: { color: "#1468d8", fontSize: 18, fontWeight: "900" },
   teamActions: { alignItems: "flex-end", gap: 8 },
   deactivateText: { color: "#ef3340", fontSize: 11, fontWeight: "900" },
   activeBadge: { color: "#16a34a", backgroundColor: "#e9f8ef" },
@@ -2500,6 +2618,7 @@ const styles = StyleSheet.create({
   summaryLabel: { color: "#64748b", fontSize: 10, fontWeight: "800", textAlign: "center" },
   groupHero: { alignItems: "center", paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12 },
   groupLogo: { width: 112, height: 112, borderRadius: 18, backgroundColor: "#e9f2ff", marginBottom: 12 },
+  groupPreviewImage: { width: 96, height: 96, borderRadius: 18, backgroundColor: "#e9f2ff" },
   groupName: { color: "#0f172a", fontSize: 22, fontWeight: "900" },
   infoLine: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#f1f5f9" },
   infoLabel: { color: "#64748b", fontSize: 12, fontWeight: "900", marginBottom: 4 },

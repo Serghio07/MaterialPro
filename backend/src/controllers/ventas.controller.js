@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarVentas = async (req, res) => {
   try {
@@ -26,7 +27,7 @@ const listarVentas = async (req, res) => {
        ORDER BY v.fecha DESC, v.fecha_creacion DESC`
     );
 
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarVentas:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -53,7 +54,7 @@ const obtenerVenta = async (req, res) => {
       return res.status(404).json({ message: "Venta no encontrada" });
     }
 
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerVenta:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -74,7 +75,7 @@ const crearVenta = async (req, res) => {
       imagen_url,
       observacion,
     } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!fecha || !id_material || !cantidad || !precio_unitario) {
       return res.status(400).json({
@@ -115,7 +116,7 @@ const crearVenta = async (req, res) => {
 
     return res.status(201).json({
       message: "Venta registrada correctamente",
-      venta: resultado.rows[0],
+      venta: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error crearVenta:", error);
@@ -150,7 +151,7 @@ const actualizarVenta = async (req, res) => {
       imagen_url,
       observacion,
     } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     const cantidadFinal = cantidad !== undefined ? Number(cantidad) : Number(actual.cantidad);
     const precioFinal = precio_unitario !== undefined ? Number(precio_unitario) : Number(actual.precio_unitario);
@@ -190,7 +191,7 @@ const actualizarVenta = async (req, res) => {
 
     return res.json({
       message: "Venta actualizada correctamente",
-      venta: resultado.rows[0],
+      venta: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error actualizarVenta:", error);

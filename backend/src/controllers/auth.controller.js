@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
 const { enviarCodigoVerificacion } = require("../utils/mailer");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const normalizarEmail = (email = "") => String(email).trim().toLowerCase();
 const esGmail = (email = "") => /^[^\s@]+@gmail\.com$/i.test(email);
@@ -14,7 +15,7 @@ const usuarioSeguro = (usuario) => ({
   email: usuario.email,
   estado: usuario.estado,
   email_verificado: usuario.email_verificado,
-  imagen_url: usuario.imagen_url,
+  imagen_url: limpiarImagenUrl(usuario.imagen_url),
 });
 
 const errorCorreo = (error) =>
@@ -28,7 +29,7 @@ const registrarUsuario = async (req, res) => {
   try {
     const { nombre, email, password, confirmarPassword, imagen_url } = req.body;
     const emailNormalizado = normalizarEmail(email);
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!nombre || !emailNormalizado || !password || !confirmarPassword) {
       return res.status(400).json({
@@ -302,7 +303,7 @@ const obtenerPerfil = async (req, res) => {
       return res.status(404).json({ message: "Usuario no encontrado" });
     }
 
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerPerfil:", error);
     return res.status(500).json({ message: "Error interno del servidor" });

@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarTiposGasto = async (req, res) => {
   try {
@@ -7,7 +8,7 @@ const listarTiposGasto = async (req, res) => {
       "SELECT * FROM tipos_gasto WHERE estado = 'activo' ORDER BY nombre ASC"
     );
 
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarTiposGasto:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -27,7 +28,7 @@ const obtenerTipoGasto = async (req, res) => {
       return res.status(404).json({ message: "Tipo de gasto no encontrado" });
     }
 
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerTipoGasto:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -37,7 +38,7 @@ const obtenerTipoGasto = async (req, res) => {
 const crearTipoGasto = async (req, res) => {
   try {
     const { nombre, descripcion, imagen_url } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!nombre) {
       return res.status(400).json({
@@ -55,7 +56,7 @@ const crearTipoGasto = async (req, res) => {
 
     return res.status(201).json({
       message: "Tipo de gasto creado correctamente",
-      tipo_gasto: resultado.rows[0],
+      tipo_gasto: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error crearTipoGasto:", error);
@@ -74,7 +75,7 @@ const actualizarTipoGasto = async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, descripcion, imagen_url, estado } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     const resultado = await pool.query(
       `UPDATE tipos_gasto
@@ -102,7 +103,7 @@ const actualizarTipoGasto = async (req, res) => {
 
     return res.json({
       message: "Tipo de gasto actualizado correctamente",
-      tipo_gasto: resultado.rows[0],
+      tipo_gasto: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error actualizarTipoGasto:", error);

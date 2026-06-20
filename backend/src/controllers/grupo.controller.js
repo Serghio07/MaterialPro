@@ -1,10 +1,11 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const obtenerGrupo = async (req, res) => {
   try {
     const existe = await pool.query("SELECT * FROM grupo ORDER BY id_grupo ASC LIMIT 1");
-    if (existe.rows.length > 0) return res.json(existe.rows[0]);
+    if (existe.rows.length > 0) return res.json(limpiarFilaImagen(existe.rows[0]));
 
     const creado = await pool.query(
       `INSERT INTO grupo (nombre_grupo, responsable, telefono_principal, descripcion, imagen_url)
@@ -15,10 +16,10 @@ const obtenerGrupo = async (req, res) => {
         "Sergio Ticona",
         "",
         "Equipo encargado del registro de ventas, gastos, materiales y control de oro encontrado.",
-        "/uploads/equipo/grupo.jpg",
+        null,
       ]
     );
-    return res.json(creado.rows[0]);
+    return res.json(limpiarFilaImagen(creado.rows[0]));
   } catch (error) {
     console.error("Error obtenerGrupo:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -28,7 +29,7 @@ const obtenerGrupo = async (req, res) => {
 const actualizarGrupo = async (req, res) => {
   try {
     const { nombre_grupo, responsable, telefono_principal, descripcion, imagen_url } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     const actual = await pool.query("SELECT * FROM grupo ORDER BY id_grupo ASC LIMIT 1");
     if (actual.rows.length === 0) {
@@ -44,7 +45,7 @@ const actualizarGrupo = async (req, res) => {
           imagenFinal,
         ]
       );
-      return res.status(201).json({ message: "Grupo creado", grupo: creado.rows[0] });
+      return res.status(201).json({ message: "Grupo creado", grupo: limpiarFilaImagen(creado.rows[0]) });
     }
 
     const id = actual.rows[0].id_grupo;
@@ -68,7 +69,7 @@ const actualizarGrupo = async (req, res) => {
       ]
     );
 
-    return res.json({ message: "Grupo actualizado", grupo: resultado.rows[0] });
+    return res.json({ message: "Grupo actualizado", grupo: limpiarFilaImagen(resultado.rows[0]) });
   } catch (error) {
     console.error("Error actualizarGrupo:", error);
     return res.status(500).json({ message: "Error interno del servidor" });

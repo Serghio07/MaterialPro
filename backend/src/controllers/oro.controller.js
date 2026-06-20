@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarOro = async (req, res) => {
   try {
@@ -22,7 +23,7 @@ const listarOro = async (req, res) => {
 
     query += " ORDER BY fecha DESC, fecha_creacion DESC";
     const resultado = await pool.query(query, params);
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarOro:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -38,7 +39,7 @@ const obtenerOro = async (req, res) => {
     if (resultado.rows.length === 0) {
       return res.status(404).json({ message: "Registro de oro no encontrado" });
     }
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerOro:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -48,7 +49,7 @@ const obtenerOro = async (req, res) => {
 const crearOro = async (req, res) => {
   try {
     const { fecha, gramos, dia_trabajo, imagen_url, observacion } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!fecha || !gramos) {
       return res.status(400).json({ message: "Fecha y gramos son obligatorios" });
@@ -66,7 +67,7 @@ const crearOro = async (req, res) => {
       [fecha, gramosNum, dia_trabajo !== undefined ? dia_trabajo : true, imagenFinal, observacion || null]
     );
 
-    return res.status(201).json({ message: "Registro de oro guardado", registro: resultado.rows[0] });
+    return res.status(201).json({ message: "Registro de oro guardado", registro: limpiarFilaImagen(resultado.rows[0]) });
   } catch (error) {
     console.error("Error crearOro:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -76,7 +77,7 @@ const crearOro = async (req, res) => {
 const actualizarOro = async (req, res) => {
   try {
     const { fecha, gramos, dia_trabajo, imagen_url, observacion } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
     const resultado = await pool.query(
       `UPDATE registros_oro
        SET fecha = COALESCE($1, fecha),
@@ -99,7 +100,7 @@ const actualizarOro = async (req, res) => {
     if (resultado.rows.length === 0) {
       return res.status(404).json({ message: "Registro de oro no encontrado" });
     }
-    return res.json({ message: "Registro de oro actualizado", registro: resultado.rows[0] });
+    return res.json({ message: "Registro de oro actualizado", registro: limpiarFilaImagen(resultado.rows[0]) });
   } catch (error) {
     console.error("Error actualizarOro:", error);
     return res.status(500).json({ message: "Error interno del servidor" });

@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarGastos = async (req, res) => {
   try {
@@ -21,7 +22,7 @@ const listarGastos = async (req, res) => {
        ORDER BY g.fecha DESC, g.fecha_creacion DESC`
     );
 
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarGastos:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -46,7 +47,7 @@ const obtenerGasto = async (req, res) => {
       return res.status(404).json({ message: "Gasto no encontrado" });
     }
 
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerGasto:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -65,7 +66,7 @@ const crearGasto = async (req, res) => {
       imagen_url,
       observacion,
     } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!fecha || !id_tipo_gasto || !monto) {
       return res.status(400).json({
@@ -103,7 +104,7 @@ const crearGasto = async (req, res) => {
 
     return res.status(201).json({
       message: "Gasto registrado correctamente",
-      gasto: resultado.rows[0],
+      gasto: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error crearGasto:", error);
@@ -125,7 +126,7 @@ const actualizarGasto = async (req, res) => {
       imagen_url,
       observacion,
     } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     const actual = await pool.query("SELECT * FROM gastos WHERE id_gasto = $1", [id]);
     if (actual.rows.length === 0) {
@@ -168,7 +169,7 @@ const actualizarGasto = async (req, res) => {
 
     return res.json({
       message: "Gasto actualizado correctamente",
-      gasto: resultado.rows[0],
+      gasto: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error actualizarGasto:", error);

@@ -1,5 +1,5 @@
 const { Pool } = require("pg");
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -11,7 +11,10 @@ const pool = new Pool({
 
 pool
   .connect()
-  .then(() => console.log("PostgreSQL conectado correctamente"))
+  .then((client) => {
+    console.log("PostgreSQL conectado correctamente");
+    client.release();
+  })
   .catch((error) =>
     console.error("Error conectando a PostgreSQL:", error.message)
   );

@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarMateriales = async (req, res) => {
   try {
@@ -7,7 +8,7 @@ const listarMateriales = async (req, res) => {
       "SELECT * FROM materiales WHERE estado = 'activo' ORDER BY nombre ASC"
     );
 
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarMateriales:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -27,7 +28,7 @@ const obtenerMaterial = async (req, res) => {
       return res.status(404).json({ message: "Material no encontrado" });
     }
 
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerMaterial:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -37,7 +38,7 @@ const obtenerMaterial = async (req, res) => {
 const crearMaterial = async (req, res) => {
   try {
     const { nombre, descripcion, unidad_medida, precio_referencia, imagen_url } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!nombre) {
       return res.status(400).json({ message: "El nombre del material es obligatorio" });
@@ -59,7 +60,7 @@ const crearMaterial = async (req, res) => {
 
     return res.status(201).json({
       message: "Material creado correctamente",
-      material: resultado.rows[0],
+      material: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error crearMaterial:", error);
@@ -76,7 +77,7 @@ const actualizarMaterial = async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, descripcion, unidad_medida, precio_referencia, imagen_url, estado } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     const resultado = await pool.query(
       `UPDATE materiales
@@ -106,7 +107,7 @@ const actualizarMaterial = async (req, res) => {
 
     return res.json({
       message: "Material actualizado correctamente",
-      material: resultado.rows[0],
+      material: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error actualizarMaterial:", error);
