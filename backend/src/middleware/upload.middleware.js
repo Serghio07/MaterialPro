@@ -18,14 +18,45 @@ const storage = multer.diskStorage({
     cb(null, target);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const mimeExt = {
+      "image/jpeg": ".jpg",
+      "image/jpg": ".jpg",
+      "image/png": ".png",
+      "image/webp": ".webp",
+      "image/gif": ".gif",
+      "image/svg+xml": ".svg",
+      "image/avif": ".avif",
+      "image/heic": ".heic",
+      "image/heif": ".heif",
+      "image/bmp": ".bmp",
+      "image/tiff": ".tiff",
+      "image/x-icon": ".ico",
+    };
+    const ext = path.extname(file.originalname) || mimeExt[file.mimetype] || ".jpg";
     const name = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
     cb(null, name);
   },
 });
 
+const allowedImageExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".svg",
+  ".avif",
+  ".heic",
+  ".heif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".ico",
+]);
+
 const imageFilter = (req, file, cb) => {
-  if (!file.mimetype.startsWith("image/")) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!file.mimetype.startsWith("image/") && !allowedImageExtensions.has(ext)) {
     return cb(new Error("Solo se permiten imagenes"));
   }
   cb(null, true);
@@ -34,7 +65,7 @@ const imageFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter: imageFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
 });
 
 const setUploadFolder = (folder) => (req, res, next) => {

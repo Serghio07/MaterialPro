@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { fileUrl } = require("../middleware/upload.middleware");
+const { limpiarImagenUrl, limpiarFilaImagen } = require("../utils/imageUrl");
 
 const listarClientes = async (req, res) => {
   try {
@@ -7,7 +8,7 @@ const listarClientes = async (req, res) => {
       "SELECT * FROM clientes WHERE estado = 'activo' ORDER BY nombre ASC"
     );
 
-    return res.json(resultado.rows);
+    return res.json(resultado.rows.map(limpiarFilaImagen));
   } catch (error) {
     console.error("Error listarClientes:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -27,7 +28,7 @@ const obtenerCliente = async (req, res) => {
       return res.status(404).json({ message: "Cliente no encontrado" });
     }
 
-    return res.json(resultado.rows[0]);
+    return res.json(limpiarFilaImagen(resultado.rows[0]));
   } catch (error) {
     console.error("Error obtenerCliente:", error);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -37,7 +38,7 @@ const obtenerCliente = async (req, res) => {
 const crearCliente = async (req, res) => {
   try {
     const { nombre, telefono, direccion, imagen_url } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     if (!nombre) {
       return res.status(400).json({
@@ -60,7 +61,7 @@ const crearCliente = async (req, res) => {
 
     return res.status(201).json({
       message: "Cliente creado correctamente",
-      cliente: resultado.rows[0],
+      cliente: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error crearCliente:", error);
@@ -72,7 +73,7 @@ const actualizarCliente = async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, telefono, direccion, imagen_url, estado } = req.body;
-    const imagenFinal = fileUrl(req) || imagen_url || null;
+    const imagenFinal = fileUrl(req) || limpiarImagenUrl(imagen_url);
 
     const resultado = await pool.query(
       `UPDATE clientes
@@ -102,7 +103,7 @@ const actualizarCliente = async (req, res) => {
 
     return res.json({
       message: "Cliente actualizado correctamente",
-      cliente: resultado.rows[0],
+      cliente: limpiarFilaImagen(resultado.rows[0]),
     });
   } catch (error) {
     console.error("Error actualizarCliente:", error);
